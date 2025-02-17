@@ -21,7 +21,7 @@ class DisplacementPublisher(Node):
     def __init__(self):
         super().__init__('displacement_publisher')
         self.publisher = self.create_publisher(Float32MultiArray, '/displacement', 10)
-        self.timer = self.create_timer(1/60, self.publish_displacement)
+        self.timer = self.create_timer(1/120, self.publish_displacement)
 
     def publish_displacement(self, displacement):
         msg = Float32MultiArray()
@@ -31,7 +31,7 @@ class DisplacementPublisher(Node):
 
 
 class USBCameraSystem:
-    def __init__(self, camera_id=0, resolution=(720, 1280)):
+    def __init__(self, camera_id=2, resolution=(720, 1280)):
         self.resolution = resolution
         self.cam = cv2.VideoCapture(camera_id)
 
@@ -101,8 +101,8 @@ class Sim:
         rclpy.init()
         self.publisher = DisplacementPublisher()
         self.print_freq = print_freq
-        self.target_pose = np.array([-0.6, 0.3, 1.05])  # 目標位置
-        self.threshold = 0.02
+        self.target_pose = np.array([-0.6, 0.3, 1.05]) 
+        self.threshold = 0.05
         self.camera_system = USBCameraSystem()
         self.active_pose = None
         self.status = "Inactive"
@@ -112,6 +112,7 @@ class Sim:
     def step(self, head_rmat, left_pose, right_pose, left_qpos, right_qpos):
         if self.print_freq:
             start = time.time()
+        print("left_pose",left_pose)
 
         left_pose_np = np.array(left_pose[:3])
 
@@ -120,14 +121,14 @@ class Sim:
                 self.status = "Active"
                 if self.active_pose is None:
                     self.active_pose = left_pose_np
-                self.previous_pose = left_pose_np  # 記錄初始位置
+                self.previous_pose = left_pose_np
         else:
             if self.previous_pose is not None:
-                self.displacement = left_pose_np - self.target_pose  # 計算與目標位置的距離
+                self.displacement = left_pose_np - self.active_pose
             else:
                 self.displacement = np.array([0.0, 0.0, 0.0])
 
-            self.previous_pose = left_pose_np  # 更新 previous_pose
+            self.previous_pose = left_pose_np
             self.publisher.publish_displacement(self.displacement)
 
         left_image, right_image = self.camera_system.get_frames()
@@ -135,11 +136,8 @@ class Sim:
             left_image = np.zeros((self.camera_system.resolution[0], self.camera_system.resolution[1], 3), dtype=np.uint8)
             right_image = np.zeros((self.camera_system.resolution[0], self.camera_system.resolution[1], 3), dtype=np.uint8)
         else:
-            # 顯示狀態
             cv2.putText(left_image, f"Status: {self.status}", (400, 250), 
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-
-            # 在左邊畫面顯示 left_pose 座標
             left_text = [
                 f"Left: x={left_pose[0]:.2f}",
                 f"y={left_pose[1]:.2f}",
@@ -160,15 +158,19 @@ class Sim:
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             else:
                 right_text = [
-                    f"Right: x={right_pose[0]:.2f}",
-                    f"y={right_pose[1]:.2f}",
-                    f"z={right_pose[2]:.2f}"
+                    f"Left: roll={left_pose[4] + 0.45:.2f}",
+                    f"pitch={left_pose[3] - 0.45 :.2f}",
+                    f"yaw={left_pose[5]:.2f}"
                 ]
+                # right_text = [
+                #     f"Right: x={right_pose[0]:.2f}",
+                #     f"y={right_pose[1]:.2f}",
+                #     f"z={right_pose[2]:.2f}"
+                # ]
                 for i, line in enumerate(right_text):
                     cv2.putText(right_image, line, (600, 300 + i * 50), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
 
-            # 轉回 RGB 格式（cv2.putText 會轉成 BGR）
             left_image = cv2.cvtColor(cv2.cvtColor(left_image, cv2.COLOR_RGB2BGR), cv2.COLOR_BGR2RGB)
             right_image = cv2.cvtColor(cv2.cvtColor(right_image, cv2.COLOR_RGB2BGR), cv2.COLOR_BGR2RGB)
 
@@ -176,7 +178,7 @@ class Sim:
             end = time.time()
             print('Frequency:', 1 / (end - start))
 
-        time.sleep(1/60)  # 控制更新頻率
+        time.sleep(1/120) 
         return left_image, right_image
 
     def end(self):
